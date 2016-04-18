@@ -130,6 +130,8 @@ struct cache_blk_t
      defined in this structure! */
   byte_t data[1];		/* actual data block starts here, block size
 				   should probably be a multiple of 8 */
+//*****************************************************************************************************************************************************
+  int rehash_bit; //Bit to check if set was indexed by a rehash function
 };
 
 /* cache set definition (one or more blocks sharing the same set index) */
@@ -156,7 +158,8 @@ struct cache_t
   int assoc;			/* cache associativity */
   enum cache_policy policy;	/* cache replacement policy */
   unsigned int hit_latency;	/* cache hit latency */
-
+  //******************************************************************************************************************************************************
+  int pseudo; // /* flag to check if cache is pseudo associative */
   /* miss/replacement handler, read/write BSIZE bytes starting at BADDR
      from/into cache block BLK, returns the latency of the operation
      if initiated at NOW, returned latencies indicate how long it takes

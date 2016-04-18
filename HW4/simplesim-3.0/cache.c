@@ -57,7 +57,8 @@
 #include "misc.h"
 #include "machine.h"
 #include "cache.h"
-
+//*********************************************************************************************************************************************************
+#define CACHE_TAG_PSEUDOASSOC(cp, addr)	((addr) >> (cp->tag_shift-1))// Tag shift for pseudo-associative cache should include highest bit of index
 /* cache access macros */
 #define CACHE_TAG(cp, addr)	((addr) >> (cp)->tag_shift)
 #define CACHE_SET(cp, addr)	(((addr) >> (cp)->set_shift) & (cp)->set_mask)
@@ -310,7 +311,8 @@ cache_create(char *name,		/* name of the cache */
   cp->assoc = assoc;
   cp->policy = policy;
   cp->hit_latency = hit_latency;
-
+  //*******************************************************************************************************************************************************
+  cp->pseudo=0; // Initialise flag to 0
   /* miss/replacement functions */
   cp->blk_access_fn = blk_access_fn;
 
@@ -376,7 +378,12 @@ cache_create(char *name,		/* name of the cache */
 	  /* locate next cache block */
 	  blk = CACHE_BINDEX(cp, cp->data, bindex);
 	  bindex++;
-
+	  
+	  
+	  
+	  //****************************************************************************************************************************************
+	  blk->rehash_bit = 1; //Initialise rehash_bit to 1
+	  
 	  /* invalidate new cache block */
 	  blk->status = 0;
 	  blk->tag = 0;
@@ -552,16 +559,70 @@ cache_access(struct cache_t *cp,	/* cache to access */
     }
   else
     {
-      /* low-associativity cache, linear search the way list */
-      for (blk=cp->sets[set].way_head;
-	   blk;
-	   blk=blk->way_next)
-	{
-	  if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
-	    goto cache_hit;
-	}
-    }
+      /* low-associativity cache, linear search the way list *///*****************************************************************************************
+      if(cp->pseudo==1)
+      {
+		// if pseudo-associative, add msb of index to tag.
+		md_addr_t new_block_tag = CACHE_TAG_PSEUDOASSOC(cp, addr);	  
+		
+	      for (blk=cp->sets[set].way_head;
+		   blk;
+		   blk=blk->way_next)
+		{
+		    if (blk->tag == new_block_tag && (blk->status & CACHE_BLK_VALID))
+		    {	
+		    	goto cache_hit;
+		    }
+		}
+      }
+      else
+      {
+		for (blk=cp->sets[set].way_head;
+		   blk;
+		   blk=blk->way_next)
+		{
+		    if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
+		    {	
+		    	goto cache_hit;
+		    }
+		}
 
+      }
+    }
+    /* iterate through flipped set and check if hit*/
+    if(cp->pseudo==1)
+    {
+	    md_addr_t new_block_tag = CACHE_TAG_PSEUDOASSOC(cp, addr);
+	    struct cache_set_t temp;
+
+	    if(cp->sets[set].way_head->rehash_bit==1)
+	    {	
+		    cp->sets[set].way_head->rehash_bit=0;
+	    }
+	    else
+	    {
+			/* if pseudo-associative, also check with flipped set bit */
+		    md_addr_t newSet=set^(1 << (cp->tag_shift - cp->set_shift - 1) );
+
+		    for (blk=cp->sets[newSet].way_head;
+			   blk;
+			   blk=blk->way_next)
+		    {
+			  if (blk->tag == new_block_tag && (blk->status & CACHE_BLK_VALID))
+			  {
+				// flip tag and data with original block (unflipped set bit)
+				temp = cp->sets[newSet];
+				cp->sets[newSet] = cp->sets[set];
+				cp->sets[set] = temp;		   
+
+			 	goto cache_hit;
+			  }
+		    }
+
+		    set=newSet;
+	    }
+     }
+//***********************************************xx*****************************************************************************************
   /* cache block not found */
 
   /* **MISS** */
@@ -619,9 +680,13 @@ cache_access(struct cache_t *cp,	/* cache to access */
 				   cp->bsize, repl, now+lat);
 	}
     }
-
+//*****************************************************************************************************************************************************
   /* update block tags */
-  repl->tag = tag;
+  if(cp->pseudo==1)	{
+  	repl->tag = CACHE_TAG_PSEUDOASSOC(cp, addr);}
+  else {
+	  repl->tag = tag;}
+
   repl->status = CACHE_BLK_VALID;	/* dirty bit set on update */
 
   /* read data block */
